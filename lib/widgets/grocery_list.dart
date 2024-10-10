@@ -17,20 +17,34 @@ class GroceryList extends StatefulWidget {
 
 class _GroceryListState extends State<GroceryList> {
   List<GroceryItem> _groceryItems = [];
+  var _isLoading = true;
+  String? _error;
 
   @override
   void initState() {
     super.initState();
-    loadItem();
+    _loadItems();
   }
 
-  void loadItem() async {
-    final url = Uri.https('flutter-prep-6bebd-default-rtdb.firebaseio.com',
-        '/shopping-list.json');
+  void _loadItems() async {
+    final url = Uri.https(
+        'flutter-prep-6bebd-default-rtdb.firebaseio.com', 'shopping-list.json');
 
     final response = await http.get(url);
+    if (response.statusCode >= 400) {
+      setState(() {
+        _error = 'Failed to fetch data. Please try again later';
+      });
+    }
 
-    final Map<String, dynamic> listData = jsonDecode(response.body);
+    if (response.body == 'null') {
+      //! Alert   firebase return String 'null' when there is no data in data base
+      setState(() {
+        _isLoading = false;
+      });
+      return;
+    }
+    final Map<String, dynamic> listData = json.decode(response.body);
 
     final List<GroceryItem> loadedItems = [];
 
@@ -52,26 +66,84 @@ class _GroceryListState extends State<GroceryList> {
 
     setState(() {
       _groceryItems = loadedItems;
+      _isLoading = false;
     });
   }
 
   void addItem() async {
-    await Navigator.of(context).push<GroceryItem>(
+    final newItem = await Navigator.of(context).push<GroceryItem>(
       MaterialPageRoute(
-        builder: (ctx) => NewItem(),
+        builder: (ctx) => const NewItem(),
       ),
     );
-    loadItem();
+
+    if (newItem == null) {
+      return;
+    }
+
+    setState(() {
+      _groceryItems.add(newItem);
+    });
   }
 
-  void removeItem(GroceryItem item) {
+  void _removeItem(GroceryItem item) async {
+    final index = _groceryItems.indexOf(item);
     setState(() {
       _groceryItems.remove(item);
     });
+
+    //  DELETE REQUEST ->
+    final url = Uri.https('flutter-prep-6bebd-default-rtdb.firebaseio.com',
+        'shopping-list/${item.id}.json');
+
+    final response = await http.delete(url);
+    //     <-  DELETE REQUEST
+
+    if (response.statusCode >= 400) {
+      // Optional: Show error message
+      setState(() {
+        _groceryItems.insert(index, item);
+      });
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    Widget content = Center(child: Text("No item added yet"));
+
+    if (_isLoading) {
+      content = Center(
+          child: CircularProgressIndicator(
+        color: Colors.amber,
+      ));
+    }
+
+    if (_groceryItems.isNotEmpty) {
+      content = ListView.builder(
+        itemCount: _groceryItems.length,
+        itemBuilder: (ctx, index) => Dismissible(
+          onDismissed: (direction) {
+            _removeItem(_groceryItems[index]);
+          },
+          key: ValueKey(_groceryItems[index].id),
+          child: ListTile(
+            leading: SizedBox.square(
+              dimension: 20,
+              child: ColoredBox(
+                color: _groceryItems[index].category.color,
+              ),
+            ),
+            trailing: Text(_groceryItems[index].quantity.toString()),
+            title: Text(_groceryItems[index].name),
+          ),
+        ),
+      );
+    }
+
+    if (_error != null) {
+      content = Center(child: Text(_error!));
+    }
+
     return Scaffold(
       backgroundColor: Theme.of(context).colorScheme.surfaceContainer,
       appBar: AppBar(
@@ -88,34 +160,10 @@ class _GroceryListState extends State<GroceryList> {
               icon: const Icon(Icons.add_circle_outline_rounded))
         ],
       ),
-      body: _groceryItems.isEmpty
-          ? Center(child: Text("No item added yet"))
-          : ListView.builder(
-              itemCount: _groceryItems.length,
-              itemBuilder: (ctx, index) => Dismissible(
-                onDismissed: (direction) {
-                  removeItem(_groceryItems[index]);
-                },
-                key: ValueKey(_groceryItems[index].id),
-                child: ListTile(
-                  leading: SizedBox.square(
-                    dimension: 20,
-                    child: ColoredBox(
-                      color: _groceryItems[index].category.color,
-                    ),
-                  ),
-                  trailing: Text(_groceryItems[index].quantity.toString()),
-                  title: Text(_groceryItems[index].name),
-                ),
-              ),
-            ),
+      body: content,
     );
   }
 }
-
-
-
-
 
 // ListView(
 //           padding: const EdgeInsets.only(left: 10, right: 20, top: 10),
